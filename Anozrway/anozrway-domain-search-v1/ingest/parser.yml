@@ -1,0 +1,165 @@
+name: anozrway-domain-search-v1
+
+pipeline:
+  - name: parsed_event
+    description: JSON parsing stage
+    filter: "{{ original.message is string and original.message.startswith('{') }}"
+    external:
+      name: json.parse-json
+      properties:
+        input_field: "{{ original.message }}"
+        output_field: message
+
+  - name: set_observer
+  - name: set_timestamp
+  - name: map_vendor_fields
+  - name: map_ecs_core
+  - name: ecs_categorization
+  - name: set_related
+  - name: cleanup
+
+stages:
+  set_observer:
+    actions:
+      - set:
+          observer.type: "application"
+          observer.vendor: "Anozrway"
+          observer.product: "Domain Search v1"
+
+  set_timestamp:
+    actions:
+      # Prefer source.detection_date, else source.date
+      - set:
+          "@timestamp": "{{ parsed_event.message.source.detection_date }}"
+        filter: >-
+          {{ parsed_event.message.source is defined and
+             parsed_event.message.source.detection_date is defined }}
+
+      - set:
+          "@timestamp": "{{ parsed_event.message.source.date }}"
+        filter: >-
+          {{ parsed_event.message.source is defined and
+             parsed_event.message.source.detection_date is not defined and
+             parsed_event.message.source.date is defined }}
+
+  map_vendor_fields:
+    actions:
+      # Put all vendor fields under one namespace (cleaner + easier fields.yml)
+      - set:
+          anozrway.source.type: "{{ parsed_event.message.source.type }}"
+          anozrway.source.name: "{{ parsed_event.message.source.name }}"
+          anozrway.source.date: "{{ parsed_event.message.source.date }}"
+          anozrway.source.detection_date: "{{ parsed_event.message.source.detection_date }}"
+          anozrway.source.data: "{{ parsed_event.message.source.data }}"
+
+      # Record fields (SAFE subset only)
+      - set:
+          anozrway.record.email: "{{ parsed_event.message.email }}"
+          anozrway.record.other_email: "{{ parsed_event.message.other_email }}"
+          anozrway.record.username: "{{ parsed_event.message.username }}"
+          anozrway.record.first_name: "{{ parsed_event.message.first_name }}"
+          anozrway.record.last_name: "{{ parsed_event.message.last_name }}"
+          anozrway.record.full_name: "{{ parsed_event.message.full_name }}"
+          anozrway.record.company: "{{ parsed_event.message.company }}"
+          anozrway.record.work: "{{ parsed_event.message.work }}"
+          anozrway.record.city: "{{ parsed_event.message.city }}"
+          anozrway.record.country: "{{ parsed_event.message.country }}"
+          anozrway.record.postal_code: "{{ parsed_event.message.postal_code }}"
+
+      # NOTE: intentionally NOT mapping these sensitive fields:
+      # password, phone_number, physical_address, birthday
+
+  map_ecs_core:
+    actions:
+      # Basic ECS enrichment from record fields
+      - set:
+          email.address: "{{ parsed_event.message.email }}"
+        filter: "{{ parsed_event.message.email is defined }}"
+
+      # If there is a username, put it in user.name
+      - set:
+          user.name: "{{ parsed_event.message.username }}"
+        filter: "{{ parsed_event.message.username is defined }}"
+
+      # If full name exists, map to user.full_name
+      - set:
+          user.full_name: "{{ parsed_event.message.full_name }}"
+        filter: "{{ parsed_event.message.full_name is defined }}"
+
+      # If company exists, map to organization.name
+      - set:
+          organization.name: "{{ parsed_event.message.company }}"
+        filter: "{{ parsed_event.message.company is defined }}"
+
+      # If city/country exists, map to geo.*
+      - set:
+          geo.city_name: "{{ parsed_event.message.city }}"
+        filter: "{{ parsed_event.message.city is defined }}"
+      - set:
+          geo.country_name: "{{ parsed_event.message.country }}"
+        filter: "{{ parsed_event.message.country is defined }}"
+
+      # Threat indicator (when email exists)
+      - set:
+          threat.indicator.type: "email"
+          threat.indicator.name: "{{ parsed_event.message.email }}"
+        filter: "{{ parsed_event.message.email is defined }}"
+
+  ecs_categorization:
+    actions:
+      - set:
+          event.provider: "anozrway"
+          event.dataset: "anozrway.domain_search.v1"
+          event.action: "domain_search"
+          event.kind: "event"
+          event.category: "{{ (final.event.category|default([])) + ['threat'] }}"
+
+      # Decide event.kind depending on source.type
+      - set:
+          event.kind: "alert"
+        filter: "{{ final.anozrway.source.type is defined and final.anozrway.source.type == 'RANSOMWARE' }}"
+
+      # event.type depending on source.type
+      - set:
+          event.type: "{{ (final.event.type|default([])) + ['indicator'] }}"
+        filter: "{{ final.anozrway.source.type is defined and final.anozrway.source.type == 'RANSOMWARE' }}"
+
+      - set:
+          event.type: "{{ (final.event.type|default([])) + ['info'] }}"
+        filter: "{{ final.anozrway.source.type is defined and final.anozrway.source.type == 'LEAK' }}"
+
+      # Human-readable message
+      - set:
+          event.message: "Anozrway {{ final.anozrway.source.type }} record from {{ final.anozrway.source.name }}"
+        filter: "{{ final.anozrway.source.type is defined and final.anozrway.source.name is defined }}"
+
+      # Outcome: success by default when parsed OK
+      - set:
+          event.outcome: "success"
+        filter: "{{ final.event.outcome is not defined }}"
+
+  set_related:
+    actions:
+      # related.email: include email + other_email
+      - set:
+          related.email: >-
+            {{
+              (
+                []
+                + ([final.email.address] if final.email is defined and final.email.address is defined else [])
+                + ([final.anozrway.record.other_email] if final.anozrway is defined and final.anozrway.record is defined and final.anozrway.record.other_email is defined else [])
+              ) | unique
+            }}
+        filter: >-
+          {{ (final.email is defined and final.email.address is defined) or
+             (final.anozrway is defined and final.anozrway.record is defined and final.anozrway.record.other_email is defined) }}
+
+      # related.user: username if available
+      - set:
+          related.user: "{{ ([final.user.name] if final.user is defined and final.user.name is defined else []) | unique }}"
+        filter: "{{ final.user is defined and final.user.name is defined }}"
+
+  cleanup:
+    actions:
+      - delete:
+          - parsed_event

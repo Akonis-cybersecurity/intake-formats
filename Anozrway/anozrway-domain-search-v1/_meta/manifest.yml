@@ -1,0 +1,9 @@
+uuid: 53a68c97-7c19-45bb-8650-f4cd5762d016
+name: Anozrway Domain Search v1
+slug: anozrway-domain-search-v1
+
+description: >-
+  Events produced from Anozrway domain search endpoint (v1). Contains leak/ransomware intelligence records related to monitored domains.
+
+data_sources:
+  Threat intelligence: Domain breach/leak intelligence records
