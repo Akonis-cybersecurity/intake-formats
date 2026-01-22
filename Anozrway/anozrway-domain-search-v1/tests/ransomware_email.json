@@ -19,6 +19,7 @@
     "event": {
       "action": "domain_search",
       "category": ["threat"],
+      "created": "2026-01-06T09:25:03.000000Z",
       "dataset": "anozrway.domain_search.v1",
       "kind": "alert",
       "message": "Anozrway RANSOMWARE record from euroqualitysystem.com",
