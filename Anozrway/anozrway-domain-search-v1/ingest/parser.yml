@@ -3,7 +3,6 @@ name: anozrway-domain-search-v1
 pipeline:
   - name: parsed_event
     description: JSON parsing stage
-    filter: "{{ original.message is string and (original.message | trim).startswith('{') }}"
     external:
       name: json.parse-json
       properties:
