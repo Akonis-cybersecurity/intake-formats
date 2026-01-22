@@ -121,24 +121,6 @@ stages:
           event.kind: "event"
           event.category: "{{ (final.event.category | default([])) + ['threat'] }}"
 
-      # Set event.created with detection_date (priorité 1) ou source.date (priorité 2)
-      - set:
-          event.created: >-
-            {%- set ts = parsed_event.message.source.detection_date -%}
-            {{ ts if '.' in ts else ts.replace('Z', '.000000Z') }}
-        filter: >-
-          {{ parsed_event.message.source is defined and
-             parsed_event.message.source.detection_date is defined }}
-
-      - set:
-          event.created: >-
-            {%- set ts = parsed_event.message.source.date -%}
-            {{ ts if '.' in ts else ts.replace('Z', '.000000Z') }}
-        filter: >-
-          {{ final.event.created is not defined and
-             parsed_event.message.source is defined and
-             parsed_event.message.source.date is defined }}
-
       - set:
           event.kind: "alert"
         filter: "{{ final.anozrway.source.type == 'RANSOMWARE' }}"
@@ -170,11 +152,11 @@ stages:
             {%- if parsed_event.message.other_email is defined -%}
               {%- set _ = emails.append(parsed_event.message.other_email) -%}
             {%- endif -%}
-            {{ emails | unique }}
+            {{ emails }}
         filter: "{{ parsed_event.message.email is defined or parsed_event.message.other_email is defined }}"
 
       - set:
-          related.user: "{{ [parsed_event.message.username] | unique }}"
+          related.user: "{{ [parsed_event.message.username] }}"
         filter: "{{ parsed_event.message.username is defined }}"
 
   cleanup:
