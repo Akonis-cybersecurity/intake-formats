@@ -1,4 +1,4 @@
-name: anozrway-domain-search-v1
+name: anozrway-domain-search
 
 pipeline:
   - name: parsed_event
@@ -23,7 +23,7 @@ stages:
       - set:
           observer.type: "application"
           observer.vendor: "Anozrway"
-          observer.product: "Domain Search v1"
+          observer.product: "Domain Search"
 
   set_timestamp:
     actions:
